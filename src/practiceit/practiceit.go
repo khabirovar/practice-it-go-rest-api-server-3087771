@@ -11,5 +11,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+	backend.InitializeRoutes()
 	backend.Run()
 }

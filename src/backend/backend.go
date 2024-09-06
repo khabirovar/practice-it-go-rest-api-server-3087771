@@ -2,9 +2,12 @@ package backend
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
@@ -32,26 +35,72 @@ func New(kind, path, addr string) (*Backend, error) {
 	return &Backend{db: db, addr: addr, router: router}, nil
 }
 
+func (b *Backend) InitializeRoutes() {
+	b.router.HandleFunc("/products", b.allProducts).Methods("GET")
+	b.router.HandleFunc("/product/{id}", b.fetchProduct).Methods("GET")
+	b.router.HandleFunc("/products", b.newProduct).Methods("POST")
+}
+
+func (b *Backend) allProducts(w http.ResponseWriter, r *http.Request) {
+	products, err := getProducts(b.db)
+	if err != nil {
+		fmt.Printf("getProducts error: %s\n", err.Error())
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, products)
+}
+
+func (b *Backend) fetchProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var p product
+	p.ID, _ = strconv.Atoi(id)
+	err := p.getProduct(b.db)
+	if err != nil {
+		fmt.Printf("getProduct error: %s\n", err.Error())
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, p)
+}
+
+func (b *Backend) newProduct(w http.ResponseWriter, r *http.Request) {
+	reqBody, _ := ioutil.ReadAll(r.Body)
+	var p product
+	json.Unmarshal(reqBody, &p)
+
+	err := p.createProduct(b.db)
+	if err != nil {
+		fmt.Printf("createProduct error: %s\n", err.Error())
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, p)
+}
+
+func (b *Backend) Run() {
+	fmt.Println("Server started and listening on port ", b.addr)
+	log.Fatal(http.ListenAndServe(b.addr, b.router))
+}
+
 func probe(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Server is running\n")
 }
 
-func (b *Backend) Run() {
-	b.router.HandleFunc("/probe", probe)
-	b.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		var p Product
-		rows, err := b.db.Query("SELECT id, name, inventory, price from products")
-		if err != nil {
-			fmt.Fprintf(w, err.Error())
-		}
-		defer rows.Close()
+// Helper functions
+func respondWithError(w http.ResponseWriter, code int, message string) {
+	respondWithJSON(w, code, map[string]string{"error": message})
+}
 
-		for rows.Next() {
-			rows.Scan(&p.id, &p.name, &p.inventory, &p.price)
-			fmt.Fprintf(w, "Product #%2d: %20s %5d %5d\n", p.id, p.name, p.inventory, p.price)
-		}
-	})
-	http.Handle("/", b.router)
-	fmt.Println("Server started and listening on port ", b.addr)
-	log.Fatal(http.ListenAndServe(b.addr, b.router))
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	response, _ := json.Marshal(payload)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(response)
 }

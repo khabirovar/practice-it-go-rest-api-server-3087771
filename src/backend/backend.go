@@ -6,12 +6,14 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 type Backend struct {
-	db   *sql.DB
-	addr string
+	db     *sql.DB
+	addr   string
+	router *mux.Router
 }
 
 type Product struct {
@@ -26,7 +28,8 @@ func New(kind, path, addr string) (*Backend, error) {
 	if err != nil {
 		return &Backend{}, err
 	}
-	return &Backend{db: db, addr: addr}, nil
+	router := mux.NewRouter()
+	return &Backend{db: db, addr: addr, router: router}, nil
 }
 
 func probe(w http.ResponseWriter, r *http.Request) {
@@ -34,8 +37,8 @@ func probe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Backend) Run() {
-	http.HandleFunc("/probe", probe)
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	b.router.HandleFunc("/probe", probe)
+	b.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		var p Product
 		rows, err := b.db.Query("SELECT id, name, inventory, price from products")
 		if err != nil {
@@ -48,6 +51,7 @@ func (b *Backend) Run() {
 			fmt.Fprintf(w, "Product #%2d: %20s %5d %5d\n", p.id, p.name, p.inventory, p.price)
 		}
 	})
+	http.Handle("/", b.router)
 	fmt.Println("Server started and listening on port ", b.addr)
-	log.Fatal(http.ListenAndServe(b.addr, nil))
+	log.Fatal(http.ListenAndServe(b.addr, b.router))
 }

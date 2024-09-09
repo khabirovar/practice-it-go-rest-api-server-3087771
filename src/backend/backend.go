@@ -39,6 +39,9 @@ func (b *Backend) InitializeRoutes() {
 	b.router.HandleFunc("/products", b.allProducts).Methods("GET")
 	b.router.HandleFunc("/product/{id}", b.fetchProduct).Methods("GET")
 	b.router.HandleFunc("/products", b.newProduct).Methods("POST")
+	b.router.HandleFunc("/orders", b.allOrders).Methods("GET")
+	b.router.HandleFunc("/order/{id}/products", b.allProductsOfOrder).Methods("GET")
+	b.router.HandleFunc("/orders", b.newOrder).Methods("POST")
 }
 
 func (b *Backend) allProducts(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +84,50 @@ func (b *Backend) newProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, p)
+}
+
+func (b *Backend) allOrders(w http.ResponseWriter, r *http.Request) {
+	orders, err := getOrders(b.db)
+	if err != nil {
+		fmt.Printf("getOrders: %s\n", err.Error())
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, orders)
+}
+
+func (b *Backend) allProductsOfOrder(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	var o order
+	o.ID, _ = strconv.Atoi(id)
+	products, err := o.getProducts(b.db)
+	if err != nil {
+		fmt.Printf("allProductsOfOrder error: %s\n", err.Error())
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, products)
+}
+
+func (b *Backend) newOrder(w http.ResponseWriter, r *http.Request) {
+	reqBody, _ := ioutil.ReadAll(r.Body)
+	var o order
+	err := json.Unmarshal(reqBody, &o)
+	if err != nil {
+		fmt.Printf("newOrder unmarshal error: %s\n", err.Error())
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	err = o.newOrder(b.db)
+	if err != nil {
+		fmt.Printf("newOrder error: %s\n", err.Error())
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, o)
 }
 
 func (b *Backend) Run() {
